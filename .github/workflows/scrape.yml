@@ -12,6 +12,8 @@ jobs:
     steps:
     - name: Check out this repo
       uses: actions/checkout@v3
+      with:
+        GH_TOKEN: ${{ secrets.GH_PAT }}
     - name: Fetch latest data
       run: |-
         mkdir -p "$(date +'%Y/%m/%d')"
