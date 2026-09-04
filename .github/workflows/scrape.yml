@@ -1,28 +1,70 @@
 name: Scrape latest data
 
 on:
-  push:
   workflow_dispatch:
   schedule:
-  - cron: '0 18 * * *'
+    # Yle publishes the day's edition around 16:45 Europe/Helsinki (13:45 UTC).
+    # Three attempts a day: free-tier scheduled runs are best-effort and are
+    # regularly delayed by hours or dropped outright, and the front page only
+    # ever shows the newest edition -- so a single missed run used to lose a
+    # day permanently. Each run is idempotent, so the extra two cost nothing.
+    - cron: '0 15 * * *'
+    - cron: '0 19 * * *'
+    - cron: '0 23 * * *'
+
+# Never let two runs race on the same push. Queue instead of cancelling: a
+# later run carries fresher content, but an in-flight one may be mid-commit.
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+
+# GitHub's explicit bash shell runs `bash --noprofile --norc -eo pipefail {0}`,
+# so every run block gets the strict flags without repeating them -- including
+# the single-command ones, which previously opted out silently.
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  scheduled:
+  scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-    - name: Check out this repo
-      uses: actions/checkout@v3
-    - name: Fetch latest data
-      run: |-
-        mkdir -p "$(date +'%Y/%m/%d')"
-        curl https://yle.fi/selkouutiset -o "$(date +'%Y/%m/%d/selkouutiset_%Y_%m_%d.html')"
-    - name: Commit and push if it changed
-      run: |-
-        git config user.name "Automated"
-        git config user.email "actions@users.noreply.github.com"
-        git add -A
-        timestamp=$(date -u)
-        git commit -m "Latest data: ${timestamp}" || exit 0
-        git push https://${GH_TOKEN}@github.com/${{ github.repository }}
-      env:
-        GH_TOKEN: ${{ secrets.GH_PAT }}
+      - name: Check out this repo
+        uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # Built once and reused by both steps below, so the compile is paid once
+      # rather than twice. The program is stdlib-only: no modules are fetched.
+      - name: Build the archive tool
+        run: go build -o "$RUNNER_TEMP/archive" ./scripts
+
+      - name: Fetch the front page
+        run: |
+          curl --fail --silent --show-error --location \
+               --retry 5 --retry-delay 15 --retry-all-errors \
+               --max-time 120 \
+               --user-agent 'selkouutiset-scrape (+https://github.com/${{ github.repository }})' \
+               https://yle.fi/selkouutiset -o capture.html
+
+      - name: File the capture
+        run: $RUNNER_TEMP/archive capture capture.html
+
+      - name: Commit and push if it changed
+        run: |
+          rm -f capture.html
+          git config user.name "Automated"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Latest data: $(date -u)" || exit 0
+          git push
+
+      - name: Audit the archive
+        # Informational: drift is worth seeing in the log, but a pre-existing
+        # data problem must not fail an otherwise successful scrape.
+        continue-on-error: true
+        run: $RUNNER_TEMP/archive audit

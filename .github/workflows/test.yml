@@ -1,0 +1,44 @@
+name: Test
+
+# Runs when the code changes, not when the data does. Keeping this out of the
+# scrape workflow means a failing test can never block data collection -- the
+# archive's unbroken-calendar invariant matters more than a red build.
+# Paths-filtered: the scrape workflow pushes a data commit up to three times a
+# day, and running the Go tests on those would bury a genuinely red build in
+# noise.
+on:
+  push:
+    paths: &code
+      - '**.go'
+      - 'go.mod'
+      - 'scripts/testdata/**'
+      - '.github/workflows/test.yml'
+  pull_request:
+    paths: *code
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - run: go vet ./...
+
+      - run: go test ./...
