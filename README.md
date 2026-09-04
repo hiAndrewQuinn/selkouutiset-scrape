@@ -57,8 +57,15 @@ the original version of this scraper named its output file from the clock at run
 time, so a run that slipped past midnight filed the day's edition under the
 *next* day, and the following day's run then overwrote it. That destroyed 40
 editions and misattributed dozens more before it was found. Deriving the day from
-the page's own headline, and filling gaps from the archive itself, removes the
-scheduler from the equation.
+the page itself, and filling gaps from the archive, removes the scheduler from
+the equation.
+
+The day comes from the article's own `datePublished` metadata, which every
+capture carries exactly once and which describes the edition rather than when
+the page was fetched. The Finnish headline (`Selkouutiset | torstai 27.8.2026`)
+is parsed as a fallback. Where the two disagree the metadata is right: Yle's
+headlines carry occasional typos, including wrong years and, on one day, a
+weekday number a day behind the weekday name.
 
 `audit` checks the same invariant read-only: missing days, captures that are
 undersized or lack an edition heading (which is how CDN error pages twice ended

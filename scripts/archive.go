@@ -67,6 +67,60 @@ var headingRe = regexp.MustCompile(editionMarker + `">[^<]*`)
 // truncating it to 2020, which is what an unanchored pattern did.
 var dateRe = regexp.MustCompile(`(\d{1,2}\.\d{1,2}\.\d{4})\D*$`)
 
+// publishedRe finds the article's own publication timestamp, which Yle emits as
+// schema.org metadata. This is the primary anchor: it is present in all 1044
+// archived captures, exactly once each, and it describes the *edition* rather
+// than when the page was rendered -- a capture taken at 01:56 showing the
+// previous day's edition still reports that edition's date.
+//
+// Only the ten-character date prefix is taken. The timestamp is always Helsinki
+// local time (only +0300 and +0200 appear across the corpus, never UTC) and the
+// latest publication hour on record is 23:00, so no capture sits near a
+// midnight boundary and no offset arithmetic is needed.
+var publishedRe = regexp.MustCompile(`"datePublished":"(\d{4}-\d{2}-\d{2})`)
+
+// anchor names where a capture's edition date came from.
+type anchor string
+
+const (
+	anchorPublished anchor = "datePublished"
+	anchorHeading   anchor = "heading"
+	anchorNone      anchor = ""
+)
+
+// editionFromPublished reads the schema.org publication date.
+func editionFromPublished(page []byte) (time.Time, bool) {
+	m := publishedRe.FindSubmatch(page)
+	if m == nil {
+		return time.Time{}, false
+	}
+	day, err := time.Parse(isoDate, string(m[1]))
+	return day, err == nil
+}
+
+// editionFromHeading reads the date out of the Finnish headline. This is the
+// fallback, kept because it is independent of the metadata: if Yle ever stops
+// emitting datePublished, captures keep landing on the right day.
+func editionFromHeading(page []byte) (time.Time, bool) {
+	return editionDateFrom(editionHeading(page))
+}
+
+// editionDate resolves which edition a page carries, preferring the metadata.
+//
+// Where the two anchors disagree the headline is the one that is wrong: across
+// the corpus they differ on 15 captures, and the Finnish weekday name -- an
+// independent witness -- backs datePublished on 13 of them. Yle's headlines
+// carry real typos, including a wrong weekday number and several wrong years.
+func editionDate(page []byte) (time.Time, anchor) {
+	if day, ok := editionFromPublished(page); ok {
+		return day, anchorPublished
+	}
+	if day, ok := editionFromHeading(page); ok {
+		return day, anchorHeading
+	}
+	return time.Time{}, anchorNone
+}
+
 // pathFor returns the archive path for a day.
 func pathFor(day time.Time) string {
 	return day.Format(pathDate) + "/selkouutiset_" + day.Format("2006_01_02") + ".html"
@@ -144,12 +198,18 @@ func editionDateFrom(heading string) (time.Time, bool) {
 // healthProblem reports why a page is not a usable capture, or "" if it is
 // fine. One predicate, used both on an incoming capture and on archived ones,
 // so the writer and the checker cannot drift apart on what "healthy" means.
+//
+// The gate asks for what the program actually needs: enough bytes to be a real
+// page, and an edition date from either anchor. Requiring one specific anchor
+// would turn a cosmetic change by Yle -- renaming a CSS class, or dropping the
+// schema.org block -- into a data-loss outage, opening exactly the gaps this
+// archive exists to prevent. Losing both still fails, loudly.
 func healthProblem(page []byte) string {
 	if len(page) < minCaptureBytes {
 		return fmt.Sprintf("%d bytes, below the %d-byte floor", len(page), minCaptureBytes)
 	}
-	if editionHeading(page) == "" {
-		return fmt.Sprintf("no %q heading", editionMarker)
+	if _, from := editionDate(page); from == anchorNone {
+		return "carrying no edition date (no datePublished, no parseable heading)"
 	}
 	return ""
 }
@@ -301,7 +361,8 @@ func runCapture(out io.Writer, root, capturePath string, today time.Time) error 
 	if problem := healthProblem(page); problem != "" {
 		return fmt.Errorf("capture is %s\n       refusing to archive it", problem)
 	}
-	edition, hasEdition := editionDateFrom(editionHeading(page))
+	edition, from := editionDate(page)
+	hasEdition := from != anchorNone
 
 	// --- Rule 1: today's slot always exists ---
 	if err := place(filepath.Join(root, pathFor(today)), capturePath); err != nil {
@@ -396,6 +457,7 @@ func runAudit(out io.Writer, root string) (bool, error) {
 	// One pass. Both checks read the same edition heading: whether it exists is
 	// the health check, and the date inside it is the attribution check.
 	var unhealthy, exact, offbyone, other, unparseable int
+	var fromPublished, fromHeading, disagree int
 	for _, rel := range captures {
 		page, err := os.ReadFile(filepath.Join(root, rel))
 		if err != nil {
@@ -406,8 +468,24 @@ func runAudit(out io.Writer, root string) (bool, error) {
 			unhealthy++
 			continue
 		}
-		edition, ok := editionDateFrom(editionHeading(page))
-		if !ok {
+		// Both anchors are resolved, not just the winner: the fallback count is
+		// the canary. It reads zero today, and goes non-zero the moment Yle
+		// stops emitting datePublished -- without it the fallback would absorb
+		// a markup change silently.
+		published, hasPublished := editionFromPublished(page)
+		heading, hasHeading := editionFromHeading(page)
+		var edition time.Time
+		switch {
+		case hasPublished:
+			edition = published
+			fromPublished++
+			if hasHeading && !heading.Equal(published) {
+				disagree++
+			}
+		case hasHeading:
+			edition = heading
+			fromHeading++
+		default:
 			unparseable++
 			continue
 		}
@@ -434,6 +512,8 @@ func runAudit(out io.Writer, root string) (bool, error) {
 	fmt.Fprintf(out, "health:     %d unhealthy capture(s)\n", unhealthy)
 	fmt.Fprintf(out, "edition:    %d exact, %d off-by-one (benign), %d other delta, %d unparseable\n",
 		exact, offbyone, other, unparseable)
+	fmt.Fprintf(out, "anchors:    %d datePublished, %d heading fallback\n", fromPublished, fromHeading)
+	fmt.Fprintf(out, "disagree:   %d capture(s) where the anchors differ\n", disagree)
 
 	if len(absent) > 0 || unhealthy > 0 {
 		fmt.Fprint(out, "\nAUDIT FAILED\n")

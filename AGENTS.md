@@ -47,29 +47,37 @@ inside it — that mismatch is normal and expected, and about 4% of the corpus h
 it. Two exceptions were repaired by hand once (two committed CDN error pages);
 if you find another, carry the previous day forward rather than leaving a hole.
 
-## The fragile part
+## How the edition date is found
 
-The edition date is parsed out of HTML with a regex anchored on the CSS class
-`yle__article__heading--1`. This is genuinely brittle, and it is a deliberate
-trade: parsing properly would mean a dependency, which the no-dependency rule
-rules out. Mitigations, all of which matter:
+Two anchors, in order:
 
-- `scripts/testdata/real_capture.html` is a genuine capture, and
-  `TestParsesRealCapture` runs the parser against it. If Yle changes the markup,
-  that test goes red — which is the point. Do not replace it with a generated
-  fixture.
-- The styled-components classes *beside* that one (`aw__sc-xiym5b-0`, `aw-17z0l1m`)
-  change between Yle builds. Only `yle__article__heading--1` has held for three
-  years. Do not anchor on the others.
-- Only the **first** heading in a page is the edition title; the rest are article
-  headings. The page is one enormous line, so line-oriented tools do not help
-  here — `grep -m1` fails for exactly this reason, which is a bug this project
-  has already shipped once.
+1. **`"datePublished"`** — the article's own schema.org timestamp. Present in all
+   1044 captures, exactly once each, always Helsinki local time (only `+0300`
+   and `+0200` appear, never UTC), never later than 23:00. Only the ten-character
+   date prefix is used, so there is no offset arithmetic and no midnight-boundary
+   case. This is the primary anchor and it should stay that way.
+2. **The Finnish headline** — the fallback, anchored on the CSS class
+   `yle__article__heading--1`. Kept because it is *independent* of the metadata:
+   if Yle stops emitting `datePublished`, captures keep landing on the right day.
+
+`audit` reports which anchor each capture used. The `heading fallback` count is
+the canary — it reads 0 today, and goes non-zero the moment the metadata
+disappears. If you see it climbing, Yle changed something.
+
+Where the two disagree, **the metadata is right and the headline is wrong** —
+15 captures, and the Finnish weekday name backs the metadata on 13 of them.
+`2026/06/24` reads "keskiviikko 23.6.2026" although 23 June 2026 was a Tuesday.
+Do not "fix" this by preferring the headline.
+
+The health gate deliberately accepts a page carrying *either* anchor. Requiring
+one specific one would turn a cosmetic change by Yle into a data-loss outage,
+opening exactly the gaps this archive exists to prevent.
 
 ## Corpus oddities that are not bugs
 
-Real inputs from the archive that any parser change must still survive. They are
-all in `TestEditionDateFrom`:
+These affect the **fallback** parser only — the metadata anchor sidesteps all of
+them — but the fallback has to keep working, so any change to it must still
+survive these. They are all in `TestEditionDateFrom`:
 
 | Input | Note |
 |---|---|
@@ -82,6 +90,15 @@ all in `TestEditionDateFrom`:
 Three title forms exist: `Selkouutiset`, `Viikon uutinen selkosuomeksi`, and
 `Uutisviikko selkosuomeksi`. The weekday name is never parsed — only the trailing
 `D.M.YYYY`. Do not add weekday handling; it will break.
+
+`scripts/testdata/real_capture.html` is a genuine capture, and the tests run both
+anchors against it. If Yle changes the markup, that goes red — which is the
+point. Do not replace it with a generated fixture. The styled-components classes
+sitting beside `yle__article__heading--1` (`aw__sc-xiym5b-0`, `aw-17z0l1m`) change
+between Yle builds; only that one has held for three years. Note also that only
+the **first** heading in a page is the edition title, and the page is a single
+enormous line, so line-oriented tools do not help — `grep -m1` fails for exactly
+this reason, a bug this project has already shipped once.
 
 ## Dates
 
@@ -113,3 +130,10 @@ Do not re-propose these without new information:
   dedupes identical blobs anyway.
 - **Dropping the byte floor as redundant with `curl --fail`.** It still catches a
   truncated 200 and hand-runs against fixtures.
+- **Adding `golang.org/x/net/html` to parse the page properly.** The cost is
+  trivial (3.2 s on a cold module cache), but it would make things *worse*: a DOM
+  query would anchor on the same CSS class, and scoping the metadata search to
+  `<script type="application/ld+json">` blocks — which is what a parser buys —
+  misses 15 captures whose `datePublished` sits in the Next.js payload instead.
+  A targeted match on the key finds all 1044. The anchor was the lever, not the
+  parser.

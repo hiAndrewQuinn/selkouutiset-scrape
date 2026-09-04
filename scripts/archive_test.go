@@ -36,6 +36,22 @@ func makePage(headings ...string) []byte {
 	return []byte(b.String())
 }
 
+// makeEdition builds a page carrying both anchors, as a real capture does: the
+// schema.org datePublished the program prefers, and a matching Finnish
+// headline. Extra headings become article headings after the edition title.
+func makeEdition(edition time.Time, extraHeadings ...string) []byte {
+	page := makePage(append([]string{"Selkouutiset | " + edition.Format(headingDate)}, extraHeadings...)...)
+	return withPublished(page, edition)
+}
+
+// withPublished splices a datePublished timestamp into a page, in the Helsinki
+// offset Yle uses. Placed before the body so it is found regardless of ordering.
+func withPublished(page []byte, day time.Time) []byte {
+	meta := []byte(`<script type="application/ld+json">{"datePublished":"` +
+		day.Format("2006-01-02") + `T16:47:15+0300"}</script>`)
+	return bytes.Replace(page, []byte("<body>"), append([]byte("<body>"), meta...), 1)
+}
+
 func writeFile(t *testing.T, path string, content []byte) string {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -68,8 +84,7 @@ func seed(t *testing.T, root string, days ...string) {
 	t.Helper()
 	for _, d := range days {
 		p := day(t, d)
-		writeFile(t, filepath.Join(root, pathFor(p)),
-			makePage("Selkouutiset | "+p.Format(headingDate)))
+		writeFile(t, filepath.Join(root, pathFor(p)), makeEdition(p))
 	}
 }
 
@@ -242,7 +257,7 @@ func TestDelayedRunHealsSkippedDay(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "2026-08-25", "2026-08-26")
 
-	page := makePage("Selkouutiset | torstai 27.8.2026")
+	page := makeEdition(day(t, "2026-08-27"))
 	out := mustCapture(t, root, fixture(t, page), "2026-08-28")
 
 	want := []string{"2026-08-25", "2026-08-26", "2026-08-27", "2026-08-28"}
@@ -262,7 +277,7 @@ func TestMultiDayGapCarriedForward(t *testing.T) {
 	seed(t, root, "2026-08-28", "2026-08-29", "2026-08-30")
 	source := readFile(t, filepath.Join(root, pathFor(day(t, "2026-08-30"))))
 
-	mustCapture(t, root, fixture(t, makePage("Selkouutiset | torstai 3.9.2026")), "2026-09-03")
+	mustCapture(t, root, fixture(t, makeEdition(day(t, "2026-09-03"))), "2026-09-03")
 
 	for _, d := range []string{"2026-08-31", "2026-09-01", "2026-09-02"} {
 		got := readFile(t, filepath.Join(root, pathFor(day(t, d))))
@@ -282,7 +297,7 @@ func TestGapBehindNewestDayIsRepaired(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	mustCapture(t, root, fixture(t, makePage("Selkouutiset | perjantai 28.8.2026")), "2026-08-28")
+	mustCapture(t, root, fixture(t, makeEdition(day(t, "2026-08-28"))), "2026-08-28")
 
 	if _, err := os.Stat(filepath.Join(root, pathFor(day(t, "2026-08-26")))); err != nil {
 		t.Fatal("gap behind the newest day was not repaired")
@@ -292,7 +307,7 @@ func TestGapBehindNewestDayIsRepaired(t *testing.T) {
 func TestIdempotence(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "2026-09-01", "2026-09-02")
-	f := fixture(t, makePage("Selkouutiset | torstai 3.9.2026"))
+	f := fixture(t, makeEdition(day(t, "2026-09-03")))
 
 	mustCapture(t, root, f, "2026-09-03")
 	before := snapshot(t, root)
@@ -309,7 +324,7 @@ func TestImplausibleEditionDateMatchesNothing(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "2026-09-01", "2026-09-02")
 
-	mustCapture(t, root, fixture(t, makePage("Selkouutiset | torstai 28.5.2020")), "2026-09-03")
+	mustCapture(t, root, fixture(t, makeEdition(day(t, "2020-05-28"))), "2026-09-03")
 
 	if _, err := os.Stat(filepath.Join(root, "2020")); err == nil {
 		t.Fatal("an out-of-archive date created a 2020/ directory")
@@ -323,7 +338,7 @@ func TestWrongDateDoesNotOverwriteAnExistingDay(t *testing.T) {
 	before := readFile(t, target)
 
 	// Advertises a day that exists and is already correctly filled.
-	mustCapture(t, root, fixture(t, makePage("Selkouutiset | tiistai 1.9.2026")), "2026-09-03")
+	mustCapture(t, root, fixture(t, makeEdition(day(t, "2026-09-01"))), "2026-09-03")
 
 	if !bytes.Equal(before, readFile(t, target)) {
 		t.Fatal("an existing day was overwritten")
@@ -339,9 +354,9 @@ func TestGateRejectsBadCapturesWithoutWriting(t *testing.T) {
 		// The 919-byte CDN block page, which was twice committed as news data.
 		{"undersized", []byte(`<HTML><HEAD><TITLE>ERROR: The request could not be satisfied</TITLE></HEAD>` +
 			`<BODY><H1>403 ERROR</H1></BODY></HTML>`), "below the"},
-		{"no edition heading", bytes.ReplaceAll(
+		{"no edition date at all", bytes.ReplaceAll(
 			makePage("Selkouutiset | torstai 3.9.2026"),
-			[]byte(editionMarker), []byte("xxxxxxxxxxxxxxxxxxxxxxxxxxxxx")), "heading"},
+			[]byte(editionMarker), []byte("xxxxxxxxxxxxxxxxxxxxxxxxxxxxx")), "no edition date"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -420,11 +435,9 @@ func TestAuditClassifiesDeltas(t *testing.T) {
 	root := t.TempDir()
 	seed(t, root, "2026-09-01")
 	// 2026-09-02 holds the previous day's edition: the benign off-by-one.
-	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-02"))),
-		makePage("Selkouutiset | tiistai 1.9.2026"))
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-02"))), makeEdition(day(t, "2026-09-01")))
 	// 2026-09-03 holds a much older edition: reported.
-	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-03"))),
-		makePage("Selkouutiset | keskiviikko 12.8.2026"))
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-03"))), makeEdition(day(t, "2026-08-12")))
 
 	var out bytes.Buffer
 	ok, err := runAudit(&out, root)
@@ -440,5 +453,107 @@ func TestAuditClassifiesDeltas(t *testing.T) {
 	}
 	if !strings.Contains(s, "(-22 days)") {
 		t.Fatalf("expected a -22 day delta:\n%s", s)
+	}
+}
+
+// --- anchors ---------------------------------------------------------------
+
+// The primary anchor, checked against genuine markup rather than a fixture this
+// file generated.
+func TestRealCaptureCarriesBothAnchors(t *testing.T) {
+	page := readFile(t, filepath.Join("testdata", "real_capture.html"))
+
+	published, ok := editionFromPublished(page)
+	if !ok {
+		t.Fatal("real capture has no datePublished")
+	}
+	heading, ok := editionFromHeading(page)
+	if !ok {
+		t.Fatal("real capture has no parseable heading")
+	}
+	if !published.Equal(heading) {
+		t.Fatalf("anchors disagree: datePublished=%s heading=%s",
+			published.Format(isoDate), heading.Format(isoDate))
+	}
+	got, from := editionDate(page)
+	if from != anchorPublished || got.Format(isoDate) != "2026-09-03" {
+		t.Fatalf("got %s via %q, want 2026-09-03 via datePublished", got.Format(isoDate), from)
+	}
+}
+
+// Yle's headlines carry real typos; the metadata does not. Where they differ,
+// the metadata wins.
+func TestPublishedBeatsHeadingWhenTheyDisagree(t *testing.T) {
+	// Mirrors 2026/06/24, whose headline reads "keskiviikko 23.6.2026" although
+	// 23 June 2026 was a Tuesday and the content is the 24th's edition.
+	page := withPublished(makePage("Selkouutiset | keskiviikko 23.6.2026"), day(t, "2026-06-24"))
+
+	got, from := editionDate(page)
+	if from != anchorPublished {
+		t.Fatalf("resolved via %q, want datePublished", from)
+	}
+	if got.Format(isoDate) != "2026-06-24" {
+		t.Fatalf("got %s, want 2026-06-24", got.Format(isoDate))
+	}
+}
+
+// If Yle ever stops emitting the metadata, captures must keep landing on the
+// right day via the headline.
+func TestFallsBackToHeadingWithoutMetadata(t *testing.T) {
+	page := makePage("Selkouutiset | torstai 27.8.2026")
+
+	got, from := editionDate(page)
+	if from != anchorHeading {
+		t.Fatalf("resolved via %q, want heading", from)
+	}
+	if got.Format(isoDate) != "2026-08-27" {
+		t.Fatalf("got %s, want 2026-08-27", got.Format(isoDate))
+	}
+}
+
+// The reason the gate no longer demands the heading class: a cosmetic rename by
+// Yle must not stop collection while the date is still readable.
+func TestGateAcceptsRenamedHeadingClass(t *testing.T) {
+	page := bytes.ReplaceAll(makeEdition(day(t, "2026-09-03")),
+		[]byte(editionMarker), []byte("yle__article__headline--v2"))
+
+	if _, ok := editionFromHeading(page); ok {
+		t.Fatal("fixture still has a recognisable heading; the test proves nothing")
+	}
+	if problem := healthProblem(page); problem != "" {
+		t.Fatalf("gate rejected a page that still carries datePublished: %s", problem)
+	}
+
+	root := t.TempDir()
+	seed(t, root, "2026-09-01", "2026-09-02")
+	out := mustCapture(t, root, fixture(t, page), "2026-09-03")
+	if !strings.Contains(out, "edition 2026-09-03") {
+		t.Fatalf("expected the metadata date to be used, got:\n%s", out)
+	}
+}
+
+func TestAuditReportsAnchorProvenance(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-09-01") // carries both anchors
+	// Metadata only, no parseable heading.
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-02"))),
+		withPublished(makePage("Selkouutiset"), day(t, "2026-09-02")))
+	// Heading only: the fallback path.
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-03"))),
+		makePage("Selkouutiset | torstai 3.9.2026"))
+	// Both, disagreeing: metadata wins and the disagreement is counted.
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-09-04"))),
+		withPublished(makePage("Selkouutiset | perjantai 1.1.2020"), day(t, "2026-09-04")))
+
+	var out bytes.Buffer
+	if _, err := runAudit(&out, root); err != nil {
+		t.Fatal(err)
+	}
+	s := out.String()
+	if !strings.Contains(s, "anchors:    3 datePublished, 1 heading fallback") {
+		t.Fatalf("unexpected anchor counts:\n%s", s)
+	}
+	if !strings.Contains(s, "disagree:   1 capture(s)") {
+		t.Fatalf("unexpected disagreement count:\n%s", s)
 	}
 }
