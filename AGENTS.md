@@ -8,18 +8,21 @@ for what the project is.
 **Every calendar day from the first capture to the newest has exactly one file.
 Never introduce a gap.**
 
-Everything else is negotiable; this is not. Duplicate content on days Yle
-published nothing is intended and is flagged downstream by hash. A missing day
-is a defect, and `archive audit` exits non-zero for one.
+Everything else is negotiable; this is not. Each day's file holds the newest
+edition published on or before that day, so on days Yle published nothing the
+previous edition repeats. That is intended, and downstream identifies repeats by
+`datePublished` (not by hash: two captures of one edition never hash the same).
+A missing day is a defect, and `archive audit` exits non-zero for one.
 
 ## Layout
 
 ```
-scripts/archive.go        the whole program: `capture` and `audit`
-scripts/archive_test.go   15 tests
+scripts/archive.go        the whole program: `capture`, `feed`, `backfill`, `audit`
+scripts/archive_test.go   32 tests
 scripts/testdata/         one real capture, for the markup boundary
+tools/history.py          one-off: finds pre-archive editions via the Wayback Machine
 go.mod                    stdlib only — keep it that way
-YYYY/MM/DD/*.html         the archive, ~1050 files and growing daily
+YYYY/MM/DD/*.html         the archive, one file per day, growing daily
 ```
 
 `go.mod` has no dependencies and should stay that way: the workflow runs
@@ -39,13 +42,19 @@ The archive is 128 MB. Tests never touch it — they build a temporary archive v
 the `-root` flag. Keep it that way; if a change makes you want to test against
 the real tree, that is a sign the seam is wrong.
 
-## Never rewrite the data
+## Never rewrite the data by hand
 
 The `YYYY/MM/DD/` files are the product. Do not relocate, deduplicate, or
-"correct" them because a capture's directory date disagrees with the edition
-inside it — that mismatch is normal and expected, and about 4% of the corpus has
-it. Two exceptions were repaired by hand once (two committed CDN error pages);
-if you find another, carry the previous day forward rather than leaving a hole.
+hand-edit them. A day holding an *earlier* edition than its own date is normal:
+it is a repeat, on a day Yle published nothing.
+
+The program does rewrite one kind of file, and only one: a day still holding an
+older edition when a newer one published on or before that day turns up (a
+carry-forward written before the real edition was seen). `fileEdition` upgrades
+those, never downgrades anything, and that is how late runs and the RSS feed
+repair lost days. If you find a damaged file (two committed CDN error pages were
+once repaired by hand), the same rule applies: carry the previous day forward
+rather than leaving a hole, and let the next capture or backfill upgrade it.
 
 ## How the edition date is found
 
@@ -111,7 +120,9 @@ wrong integer.
 ## Workflows
 
 - `scrape.yml` — 3×/day. Its critical path is fetch → file → commit → push. Do
-  not add anything that can fail before the data is committed.
+  not add anything that can fail before the data is committed. After that push,
+  a `continue-on-error` step reads Yle's RSS feed and backfills any edition of
+  the last ~3 weeks the archive is missing or holds stale, then commits again.
 - `test.yml` — on push and PR, paths-filtered to code. Deliberately separate: a
   failing test must never block data collection, because a lost day cannot be
   recovered later. The front page only ever shows the newest edition.
@@ -120,8 +131,17 @@ wrong integer.
 
 Do not re-propose these without new information:
 
-- **Naming files by edition date instead of capture date.** Collapses holiday
+- **Naming files by edition date instead of calendar day.** Collapses holiday
   stretches into one file and puts holes in the calendar. Violates the one rule.
+  (Files are named by calendar day and *hold* the newest edition on or before
+  it; that is different, and is what `fileEdition` maintains.)
+- **Only filling days that are missing.** The rule before November 2026. A run
+  delayed past midnight then left the edition's own day holding the previous
+  edition, and lost the edition outright whenever the next day had one too.
+  Seven editions went that way in October–November 2026.
+- **Searching yle.fi for old editions.** Yle's search lives under `/haku/`,
+  which robots.txt disallows. `tools/history.py` gets its index from the Wayback
+  Machine instead, and fetches only the article pages (`/a/`), which are allowed.
 - **A plausibility clamp on the parsed date.** Unnecessary: a bogus date can only
   select content for a day already found missing, so a date outside the archive
   or on a filled day matches nothing on its own.

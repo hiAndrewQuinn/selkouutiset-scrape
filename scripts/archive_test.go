@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -267,8 +268,8 @@ func TestDelayedRunHealsSkippedDay(t *testing.T) {
 	if healed := readFile(t, filepath.Join(root, pathFor(day(t, "2026-08-27")))); !bytes.Equal(healed, page) {
 		t.Fatal("healed day is not byte-identical to the capture")
 	}
-	if !strings.Contains(out, "healed   2026-08-27") {
-		t.Fatalf("expected a healed line, got:\n%s", out)
+	if !strings.Contains(out, "filed    2026-08-27") {
+		t.Fatalf("expected a filed line, got:\n%s", out)
 	}
 }
 
@@ -555,5 +556,300 @@ func TestAuditReportsAnchorProvenance(t *testing.T) {
 	}
 	if !strings.Contains(s, "disagree:   1 capture(s)") {
 		t.Fatalf("unexpected disagreement count:\n%s", s)
+	}
+}
+
+// --- late runs and stale carry-forwards --------------------------------------
+
+// editionIn reads the edition a day's slot holds.
+func editionIn(t *testing.T, root, d string) string {
+	t.Helper()
+	held, exists, err := slotEdition(root, day(t, d))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exists {
+		t.Fatalf("%s has no file", d)
+	}
+	return held.Format(isoDate)
+}
+
+// The production failure of November 2026, replayed run by run. After DST
+// ended, GitHub started the afternoon cron after midnight Helsinki time, so
+// every run woke on the day after the edition it saw. The old rules filed
+// each edition only under the wake-up day, leaving its own day holding the
+// edition before; and on 21 November a run before midnight overwrote the 21st
+// with that day's edition, losing the 20th's entirely.
+func TestLateRunsReplayOfLostNovemberEdition(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-11-18")
+
+	runs := []struct{ today, edition string }{
+		{"2026-11-19", "2026-11-18"}, // 00:31 and 05:54: 19th not yet published
+		{"2026-11-20", "2026-11-19"}, // 00:38 on the 20th, seeing the 19th
+		{"2026-11-21", "2026-11-20"}, // 00:12 on the 21st, seeing the 20th
+		{"2026-11-21", "2026-11-21"}, // 22:51 on the 21st, seeing the 21st
+	}
+	for _, r := range runs {
+		mustCapture(t, root, fixture(t, makeEdition(day(t, r.edition))), r.today)
+	}
+
+	for _, d := range []string{"2026-11-18", "2026-11-19", "2026-11-20", "2026-11-21"} {
+		if got := editionIn(t, root, d); got != d {
+			t.Errorf("%s holds edition %s, want its own", d, got)
+		}
+	}
+}
+
+// A run that wakes after midnight must upgrade the edition's own day, which an
+// earlier run had already filled with the previous edition.
+func TestLateRunUpgradesStaleOwnDay(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-11-17")
+	// The 18th was filled before that day's edition was out.
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-11-18"))), makeEdition(day(t, "2026-11-17")))
+
+	page := makeEdition(day(t, "2026-11-18"))
+	out := mustCapture(t, root, fixture(t, page), "2026-11-19")
+
+	if got := readFile(t, filepath.Join(root, pathFor(day(t, "2026-11-18")))); !bytes.Equal(got, page) {
+		t.Fatal("the edition's own day was not upgraded")
+	}
+	if !strings.Contains(out, "upgraded 2026-11-18  <- edition 2026-11-18 (slot held 2026-11-17)") {
+		t.Fatalf("expected an upgrade line, got:\n%s", out)
+	}
+	if got := editionIn(t, root, "2026-11-19"); got != "2026-11-18" {
+		t.Fatalf("today holds %s, want the capture's 2026-11-18", got)
+	}
+}
+
+// Every stale carry-forward after the edition's day is upgraded, and the walk
+// stops at the first day that already holds something at least as new.
+func TestUpgradeWalksStaleDaysAndStopsAtNewer(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-12-20")
+	for _, d := range []string{"2026-12-21", "2026-12-22", "2026-12-23"} {
+		writeFile(t, filepath.Join(root, pathFor(day(t, d))), makeEdition(day(t, "2026-12-20")))
+	}
+	seed(t, root, "2026-12-24")
+	before24 := readFile(t, filepath.Join(root, pathFor(day(t, "2026-12-24"))))
+
+	// The 22nd's edition turns up late (the 22nd and 23rd were filled while
+	// the front page still showed the 20th's). Today is the 25th.
+	mustCapture(t, root, fixture(t, makeEdition(day(t, "2026-12-22"))), "2026-12-25")
+
+	want := map[string]string{
+		"2026-12-21": "2026-12-20", // before the edition: untouched
+		"2026-12-22": "2026-12-22",
+		"2026-12-23": "2026-12-22", // stale carry-forward: upgraded
+	}
+	for d, w := range want {
+		if got := editionIn(t, root, d); got != w {
+			t.Errorf("%s holds %s, want %s", d, got, w)
+		}
+	}
+	if !bytes.Equal(before24, readFile(t, filepath.Join(root, pathFor(day(t, "2026-12-24"))))) {
+		t.Fatal("a day holding a newer edition was overwritten")
+	}
+}
+
+// Today's slot must not roll back to an older edition, as a stale CDN copy
+// served on a later run would otherwise make it.
+func TestCaptureNeverRollsTodayBack(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-09-01", "2026-09-02", "2026-09-03")
+	target := filepath.Join(root, pathFor(day(t, "2026-09-03")))
+	before := readFile(t, target)
+
+	out := mustCapture(t, root, fixture(t, makeEdition(day(t, "2026-09-02"))), "2026-09-03")
+
+	if !bytes.Equal(before, readFile(t, target)) {
+		t.Fatal("today's newer edition was replaced by an older one")
+	}
+	if !strings.Contains(out, "kept     2026-09-03") {
+		t.Fatalf("expected a kept line, got:\n%s", out)
+	}
+}
+
+// --- backfill ----------------------------------------------------------------
+
+func mustBackfill(t *testing.T, root string, today string, pages ...string) (string, int) {
+	t.Helper()
+	var out bytes.Buffer
+	rejected, err := runBackfill(&out, root, pages, day(t, today))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out.String(), rejected
+}
+
+// Backfill extends the archive backwards, carrying the preceding edition into
+// days that have none, so the no-gaps invariant holds over the new span too.
+func TestBackfillExtendsArchiveBackwards(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2023-10-26", "2023-10-27")
+	dir := t.TempDir()
+	a := writeFile(t, filepath.Join(dir, "a.html"), makeEdition(day(t, "2023-10-21")))
+	b := writeFile(t, filepath.Join(dir, "b.html"), makeEdition(day(t, "2023-10-24")))
+
+	if _, rejected := mustBackfill(t, root, "2023-10-28", a, b); rejected != 0 {
+		t.Fatalf("%d rejected", rejected)
+	}
+
+	want := []string{"2023-10-21", "2023-10-22", "2023-10-23", "2023-10-24", "2023-10-25", "2023-10-26", "2023-10-27"}
+	if got := archivedDays(t, root); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	held := map[string]string{
+		"2023-10-21": "2023-10-21", "2023-10-22": "2023-10-21", "2023-10-23": "2023-10-21",
+		"2023-10-24": "2023-10-24", "2023-10-25": "2023-10-24", "2023-10-26": "2023-10-26",
+	}
+	for d, w := range held {
+		if got := editionIn(t, root, d); got != w {
+			t.Errorf("%s holds %s, want %s", d, got, w)
+		}
+	}
+}
+
+// The result must not depend on the order pages are given in: the newest-first
+// sort is an efficiency measure, not a semantic one.
+func TestBackfillIsOrderIndependent(t *testing.T) {
+	dir := t.TempDir()
+	var pages []string
+	for _, d := range []string{"2023-10-15", "2023-10-18", "2023-10-19", "2023-10-23"} {
+		pages = append(pages, writeFile(t, filepath.Join(dir, d+".html"), makeEdition(day(t, d))))
+	}
+	reversed := slices.Clone(pages)
+	slices.Reverse(reversed)
+
+	var snaps []string
+	for _, order := range [][]string{pages, reversed} {
+		root := t.TempDir()
+		seed(t, root, "2023-10-26")
+		mustBackfill(t, root, "2023-10-27", order...)
+		snaps = append(snaps, snapshot(t, root))
+	}
+	if snaps[0] != snaps[1] {
+		t.Fatalf("archive depends on argument order:\n%s\nvs\n%s", snaps[0], snaps[1])
+	}
+}
+
+// Where two pages carry the same edition date (a radio and a TV edition), the
+// first one given wins, so callers state a preference through argument order.
+func TestBackfillFirstPageWinsForADate(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2023-10-26")
+	dir := t.TempDir()
+	radio := makeEdition(day(t, "2023-10-25"), "radio")
+	tv := makeEdition(day(t, "2023-10-25"), "tv")
+	r := writeFile(t, filepath.Join(dir, "radio.html"), radio)
+	v := writeFile(t, filepath.Join(dir, "tv.html"), tv)
+
+	mustBackfill(t, root, "2023-10-27", r, v)
+
+	if got := readFile(t, filepath.Join(root, pathFor(day(t, "2023-10-25")))); !bytes.Equal(got, radio) {
+		t.Fatal("the first page given for a date did not win")
+	}
+}
+
+// A lost day inside the archive is upgraded in place, along with its stale
+// carry-forward, and nothing newer is touched.
+func TestBackfillRecoversLostDayInsideArchive(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-11-19")
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-11-20"))), makeEdition(day(t, "2026-11-19")))
+	seed(t, root, "2026-11-21")
+	before21 := readFile(t, filepath.Join(root, pathFor(day(t, "2026-11-21"))))
+
+	p := writeFile(t, filepath.Join(t.TempDir(), "p.html"), makeEdition(day(t, "2026-11-20")))
+	mustBackfill(t, root, "2026-11-24", p)
+
+	if got := editionIn(t, root, "2026-11-20"); got != "2026-11-20" {
+		t.Fatalf("lost day holds %s after backfill", got)
+	}
+	if !bytes.Equal(before21, readFile(t, filepath.Join(root, pathFor(day(t, "2026-11-21"))))) {
+		t.Fatal("a newer day was rewritten")
+	}
+}
+
+// Bad pages are reported and skipped; good ones in the same batch still land.
+func TestBackfillSkipsBadPagesAndFilesTheRest(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-09-01")
+	dir := t.TempDir()
+	bad := writeFile(t, filepath.Join(dir, "bad.html"), []byte("<H1>404</H1>"))
+	future := writeFile(t, filepath.Join(dir, "future.html"), makeEdition(day(t, "2026-09-09")))
+	good := writeFile(t, filepath.Join(dir, "good.html"), makeEdition(day(t, "2026-08-31")))
+
+	out, rejected := mustBackfill(t, root, "2026-09-02", bad, future, good)
+
+	if rejected != 2 {
+		t.Fatalf("rejected %d, want 2:\n%s", rejected, out)
+	}
+	if got := archivedDays(t, root); !slices.Equal(got, []string{"2026-08-31", "2026-09-01"}) {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// --- feed --------------------------------------------------------------------
+
+func TestFeedListsOnlyEditionsTheArchiveLacks(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-11-18", "2026-11-19")
+	// The 20th holds the 19th's edition: the lost-day shape.
+	writeFile(t, filepath.Join(root, pathFor(day(t, "2026-11-20"))), makeEdition(day(t, "2026-11-19")))
+
+	feed := writeFile(t, filepath.Join(t.TempDir(), "feed.xml"), []byte(`<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Selkouutiset</title>
+<item><title>Selkouutiset | maanantai 23.11.2026</title><link>https://yle.fi/a/74-23?origin=rss</link><pubDate>Mon, 23 Nov 2026 16:47:56 +0200</pubDate></item>
+<item><title>Selkouutiset | lauantai 21.11.2026</title><link>https://yle.fi/a/74-21?origin=rss</link><pubDate>Sat, 21 Nov 2026 14:18:58 +0200</pubDate></item>
+<item><title>Selkouutiset | perjantai 20.11.2026</title><link>https://yle.fi/a/74-20?origin=rss</link><pubDate>Fri, 20 Nov 2026 16:35:35 +0200</pubDate></item>
+<item><title>Selkouutiset | torstai 19.11.2026</title><link>https://yle.fi/a/74-19?origin=rss</link><pubDate>Thu, 19 Nov 2026 15:41:40 +0200</pubDate></item>
+<item><title>Late-night edition</title><link>https://yle.fi/a/74-late</link><pubDate>Wed, 18 Nov 2026 22:30:00 +0000</pubDate></item>
+</channel></rss>`))
+
+	var out bytes.Buffer
+	if err := runFeed(&out, root, feed, day(t, "2026-11-22")); err != nil {
+		t.Fatal(err)
+	}
+	// 23rd: after today, skipped. 21st: missing. 20th: stale. 19th: correct.
+	// The last item's 22:30 UTC is 00:30 on the 19th in Helsinki, which holds
+	// the 19th's edition already.
+	want := "https://yle.fi/a/74-21\nhttps://yle.fi/a/74-20\n"
+	if out.String() != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", out.String(), want)
+	}
+}
+
+func TestFeedRejectsGarbage(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-11-18")
+	for name, body := range map[string]string{
+		"not xml":  "<html><body>Bad gateway</body></html",
+		"no items": `<rss><channel><title>x</title></channel></rss>`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := writeFile(t, filepath.Join(t.TempDir(), "feed.xml"), []byte(body))
+			if err := runFeed(io.Discard, root, f, day(t, "2026-11-19")); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}
+
+func TestAuditCountsRepeats(t *testing.T) {
+	root := t.TempDir()
+	seed(t, root, "2026-12-23")
+	for _, d := range []string{"2026-12-24", "2026-12-25"} {
+		writeFile(t, filepath.Join(root, pathFor(day(t, d))), makeEdition(day(t, "2026-12-23")))
+	}
+	seed(t, root, "2026-12-26")
+
+	var out bytes.Buffer
+	if _, err := runAudit(&out, root); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "repeats:    2 day(s)") {
+		t.Fatalf("unexpected repeat count:\n%s", out.String())
 	}
 }
