@@ -3,14 +3,17 @@ name: Scrape latest data
 on:
   workflow_dispatch:
   schedule:
-    # Yle publishes the day's edition around 16:45 Europe/Helsinki (13:45 UTC).
-    # Three attempts a day: free-tier scheduled runs are best-effort and are
-    # regularly delayed by hours or dropped outright, and the front page only
-    # ever shows the newest edition -- so a single missed run used to lose a
-    # day permanently. Each run is idempotent, so the extra two cost nothing.
-    - cron: '0 15 * * *'
-    - cron: '0 19 * * *'
-    - cron: '0 23 * * *'
+    # Yle publishes the day's edition around 16:45 Europe/Helsinki (13:45 UTC
+    # in summer, 14:45 UTC in winter). Three attempts a day: free-tier
+    # scheduled runs are best-effort, and in November 2026 the 15:00 slot was
+    # routinely starting six to eight hours late -- past midnight in Helsinki.
+    # That no longer misfiles anything (capture files each edition under its
+    # own date, and the feed step below recovers any day missed outright), but
+    # earlier runs still mean fresher data. Off the top of the hour, which is
+    # when GitHub's scheduler is most congested. Each run is idempotent.
+    - cron: '23 15 * * *'
+    - cron: '23 19 * * *'
+    - cron: '23 23 * * *'
 
 # Never let two runs race on the same push. Queue instead of cancelling: a
 # later run carries fresher content, but an in-flight one may be mid-commit.
@@ -61,6 +64,38 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add -A
           git commit -m "Latest data: $(date -u)" || exit 0
+          git push
+
+      # The safety net under capture. The front page only ever shows the newest
+      # edition, so a day no run saw used to be lost for good. Yle's RSS feed
+      # lists about three weeks of editions; `archive feed` prints the article
+      # URL of each one the archive is missing or holds stale, and backfill
+      # files it under its own date. Deliberately after the commit above, and
+      # allowed to fail: nothing here may stand between a capture and the push.
+      - name: Recover missed editions from the RSS feed
+        continue-on-error: true
+        run: |
+          ua='selkouutiset-scrape (+https://github.com/${{ github.repository }})'
+          curl --fail --silent --show-error --location \
+               --retry 5 --retry-delay 15 --retry-all-errors --max-time 120 \
+               --user-agent "$ua" https://yle.fi/rss/selkouutiset -o "$RUNNER_TEMP/feed.xml"
+          mkdir -p "$RUNNER_TEMP/feed"
+          $RUNNER_TEMP/archive feed "$RUNNER_TEMP/feed.xml" | while read -r url; do
+            echo "fetching $url"
+            curl --fail --silent --show-error --location \
+                 --retry 3 --retry-delay 15 --retry-all-errors --max-time 120 \
+                 --user-agent "$ua" "$url" -o "$RUNNER_TEMP/feed/${url##*/}.html" || true
+            sleep 2
+          done
+          shopt -s nullglob
+          pages=("$RUNNER_TEMP"/feed/*.html)
+          if [ ${#pages[@]} -eq 0 ]; then
+            echo "archive already holds every edition in the feed"
+            exit 0
+          fi
+          $RUNNER_TEMP/archive backfill "${pages[@]}"
+          git add -A
+          git commit -m "Recovered editions from feed: $(date -u)" || exit 0
           git push
 
       - name: Audit the archive
