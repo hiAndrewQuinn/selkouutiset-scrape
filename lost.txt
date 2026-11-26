@@ -24,6 +24,18 @@
 # their day. 2019-03-07 and 2019-04-14 were posted after midnight (08:37 the
 # next morning, and 00:01), so datePublished names the next day, which has an
 # edition of its own; they were filed by hand under the day their title names.
-2022-05-01	only the day's quiz page survives (Common Crawl, yle.fi/uutiset/osasto/selkouutiset/sunnuntai_152022/12425064); no edition found by probing yle.fi article IDs or in any index
-2022-07-06	no copy found anywhere; every yle.fi article ID between the 5th's and 7th's editions, and 1000 either side, was probed
-2023-03-18	no copy found anywhere; every yle.fi article ID between the 17th's and 19th's editions, and 100 either side, was probed
+#
+# A fourth pass the same day found the last three days' fates:
+# - 2022-05-01 is yle.fi/a/3-12425039, titled "Sunnunta 1.5.2022 (radio)"
+#   (weekday misspelt), and 2022-07-06 is 3-12526285, titled "Keskiviikko
+#   5.7.2022" (no (radio) suffix, date of the day before). Both were in the
+#   probe cache all along; the title filter missed them. Both are filed.
+# - 2023-03-18 appears never to have been published as a web edition. The
+#   Wayback Machine's capture of Yle's own Selkouutiset front page on
+#   2023-03-20 12:43 lists every edition from 10.3. to 19.3. except the 18th
+#   (17.3. radio+tv, then 19.3.); a crawl of the whole list on 2023-04-17 has
+#   none either, Common Crawl has no lauantai_1832023 URL, and every ID between
+#   the 17th's and 19th's editions (3-12689908..27) is 404 and was never
+#   archived. It is a carried-forward gap like a holiday, not lost media.
+#
+# No edition is known to be lost.

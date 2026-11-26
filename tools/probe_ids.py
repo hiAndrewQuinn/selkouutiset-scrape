@@ -78,7 +78,11 @@ def edition_day(t):
 # "Tiistai 21.2.2020" for 21.1., "Sunnuntai 21.4.2109". Any edition-shaped
 # title between a lost day's anchors is therefore also a candidate for that
 # day, whatever date it names; fetch_ids.py's datePublished check decides.
-SHAPE = re.compile(r"^" + WD + r"\b.*\((radio|tv)\)|selkouutiset", re.I)
+# Titles are hand-typed, so the weekday may be misspelt ("Sunnunta 1.5.2022") and
+# the (radio)/(tv) suffix is missing in mid-2022 ("Keskiviikko 5.7.2022"): match
+# the first five letters of a weekday followed by a date, or the suffix.
+SHAPE = re.compile(r"^(maana|tiist|keski|torst|perja|lauan|sunnu)\w*\s+\d{1,2}\.\s*\d{1,2}\.\s*\d{4}"
+                   r"|^" + WD + r"\b.*\((radio|tv)\)|selkouutiset", re.I)
 
 
 def misdated(day, pre, lo, hi):
