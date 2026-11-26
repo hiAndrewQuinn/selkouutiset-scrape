@@ -117,12 +117,49 @@ Most of the carried-forward days are holidays, plus gaps in Wayback coverage:
 much of 2017-2018 and April-October 2023. The same run also repaired 12 days inside
 the existing archive that held the previous day's edition (2024-01-28, 2024-02-11,
 2025-04-27, 2026-03-14, and eight November 2026 days from the live feed).
-Editions that never reached the archive or the Wayback Machine (2026-10-05,
-2026-10-12, 2026-11-02) cannot be recovered.
+Editions that never reached the archive or the Wayback Machine were listed as
+lost; the second sweep below found most of them, 2026-10-05, 2026-10-12 and
+2026-11-02 included.
+
+### Finding editions without an index
+
+Yle assigns article IDs in increasing order, and the edition titles name their
+day ("Tiistai 6.6.2017 (radio)", "Radio Selkouutiset keskiviikko 13.9.2023").
+So an edition nobody indexed can still be found: estimate its ID from the
+editions on either side and read the titles of the IDs around the estimate.
+`tools/probe_ids.py` does this, reading only the head of each page, and walks
+runs of lost days one at a time, each find anchoring the next.
+`tools/cc_index.py` adds a second, independent index: Common Crawl's record of
+the old site's dated URLs. `tools/fetch_ids.py` then fetches each candidate
+from yle.fi and keeps it only if its `datePublished` is the day:
+
+```sh
+grep -v '^#' lost.txt | cut -f1 > /tmp/probe/days.txt
+uv run tools/cc_index.py /tmp/probe/cc /tmp/probe/days.txt > /tmp/probe/cc.tsv
+uv run tools/probe_ids.py . /tmp/probe/cache /tmp/probe/days.txt /tmp/probe/found.tsv
+uv run tools/fetch_ids.py /tmp/probe/fetched /tmp/probe/cc.tsv /tmp/probe/found.tsv
+go run ./scripts backfill $(cat /tmp/probe/fetched/order.txt)
+go run ./scripts audit
+```
+
+This was run on 2026-11-25/26 against the 316 days then in `lost.txt`:
+
+| | days |
+|---|---|
+| lost before the sweep | 316 |
+| found by probing article IDs | 288 |
+| named by Common Crawl's index (60, nearly all also found by probing) | 60 |
+| fetched from yle.fi and verified, now filed | 292 |
+| still lost | 24 |
+
+Probing made about 164,000 requests (most are 404s), roughly 570 per day found,
+at about one request per second per worker. Of the 24 days still lost, 2 have a page on yle.fi dated
+the following day, 3 survive only as old-layout copies in Common Crawl (which
+`archive backfill` cannot read), and the rest were not found anywhere.
 
 ### `lost.txt`
 
-[`lost.txt`](lost.txt) lists the 316 days whose edition is lost media: Yle
+[`lost.txt`](lost.txt) lists the 24 days whose edition is lost media: Yle
 published it, but no copy survives anywhere. Their folders hold the previous
 edition, carried forward like any gap; the cleaned pipeline marks them
 `"lost": true` in `edition.json`, and the website lists them greyed out as
