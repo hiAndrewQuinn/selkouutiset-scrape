@@ -181,14 +181,38 @@ their day, the capture rules never touch them.
 | filed by hand (posted after midnight) | 2 |
 | still lost | 3 |
 
-The last three are 2022-05-01 (only the quiz page survives), 2022-07-06 and
-2023-03-18 (every ID between the neighbouring editions, and a margin either
-side, was probed).
+A fourth pass resolved the last three by looking sideways rather than harder:
+
+- **2022-07-06**: the Wayback Machine's capture of the old site's archive
+  page, taken at 18:29 that evening, links `keskiviikko_572022/12526285`. The
+  edition is titled "Keskiviikko 5.7.2022", with the previous day's date and,
+  like all mid-2022 editions, no "(radio)" suffix, so the misdated-title
+  filter (which required the suffix) passed over it although the prober had
+  cached its title.
+- **2022-05-01**: listing every non-404 title between the neighbouring
+  editions turned up "Sunnunta 1.5.2022 (radio)" (3-12425039): the weekday is
+  misspelt, so no weekday pattern matched it.
+- **2023-03-18**: Yle's own front page, captured by the Wayback Machine on the
+  20th, lists every edition from 10.3. to 19.3. except the 18th. Every ID
+  between the 17th's and 19th's editions is 404 and was never archived, and no
+  crawl knows a `lauantai_1832023` URL. No web edition seems to have been
+  published that day, so it is now an ordinary carried-forward gap.
+
+`probe_ids.py`'s filter now accepts the first five letters of a weekday
+followed by a date, with or without the suffix; re-run on the archive as it
+was, it names both pages and `fetch_ids.py` verifies them.
+
+| | days |
+|---|---|
+| still lost after the third pass | 3 |
+| recovered (title typos the filter missed) | 2 |
+| apparently never published | 1 |
+| still lost | 0 |
 
 ### `lost.txt`
 
-[`lost.txt`](lost.txt) lists the 3 days whose edition is lost media: Yle
-published it, but no copy survives anywhere. Their folders hold the previous
+[`lost.txt`](lost.txt) lists the days whose edition is lost media: Yle
+published it, but no copy survives anywhere. It is empty since 2026-11-26. Their folders hold the previous
 edition, carried forward like any gap; the cleaned pipeline marks them
 `"lost": true` in `edition.json`, and the website lists them greyed out as
 "(lost media)". Before 2023-10-26 a carried-forward day counts as lost unless it

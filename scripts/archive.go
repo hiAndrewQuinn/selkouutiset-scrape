@@ -118,7 +118,8 @@ func editionFromHeading(page []byte) (time.Time, bool) {
 // independent witness -- backed datePublished on 13 of them. Yle's headlines
 // carry real typos, including a wrong weekday number and several wrong years
 // ("Sunnuntai 21.4.2109"); recovering misdated editions in 2026-11 raised the
-// count to 24, every one confirmed by datePublished.
+// count to 24, and the last two finds ("Keskiviikko 5.7.2022" for the 6th) to
+// 25, every one confirmed by datePublished.
 func editionDate(page []byte) (time.Time, anchor) {
 	if day, ok := editionFromPublished(page); ok {
 		return day, anchorPublished
