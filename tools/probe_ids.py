@@ -23,6 +23,9 @@ date ranges can be probed in parallel against the same cache. Days that already
 have a verified page in a directory named by EXTRA_PAGES (colon-separated,
 files named <day>.<kind>.<id>.html as fetch_ids.py writes them) are skipped and
 serve as anchors. Output lines: day, kind (radio/tv/web, or none), id, title.
+When no title names a day, every edition-shaped title between its anchors is
+listed as a candidate marked "(misdated?)": Yle's titles carry typos, and only
+the page's datePublished, checked by fetch_ids.py, says which day it belongs to.
 
 Anchors are archive editions whose datePublished equals their day, plus every
 edition found while probing (so runs of lost days are walked one day at a
@@ -69,6 +72,23 @@ def edition_day(t):
         return dt.date(int(m[3]), int(m[2]), int(m[1]))
     except ValueError:
         return None
+
+
+# Yle's titles are hand-typed and sometimes wrong: "Perjantai 19.1. 2018",
+# "Tiistai 21.2.2020" for 21.1., "Sunnuntai 21.4.2109". Any edition-shaped
+# title between a lost day's anchors is therefore also a candidate for that
+# day, whatever date it names; fetch_ids.py's datePublished check decides.
+SHAPE = re.compile(r"^" + WD + r"\b.*\((radio|tv)\)|selkouutiset", re.I)
+
+
+def misdated(day, pre, lo, hi):
+    """Edition-shaped titles in (lo, hi) that do not name day."""
+    out = []
+    for aid, t in titles.items():
+        p, _, n = aid.partition("-")
+        if p == pre and lo < int(n) < hi and not t.startswith("#") and SHAPE.search(t) and edition_day(t) != day:
+            out.append((aid, t))
+    return sorted(out)
 
 
 found = {}  # day -> {id: title}
@@ -132,19 +152,19 @@ out = out_tsv.open("a")
 for day in lost:
     if day in skip:
         print(f"{day}\tverified elsewhere", flush=True); continue
+    # the ID scheme of the nearest anchor before the day
+    def latest_before(p):
+        j = bisect.bisect_left(anchors[p], (day, 0))
+        return anchors[p][j - 1][0] if j > 0 else dt.date.min
+    pre = max(anchors, key=latest_before)
+    lst = anchors[pre]
+    i = bisect.bisect_left(lst, (day, 0))
+    if i == 0 or i == len(lst):
+        print(f"{day}\tskip\tno anchors on both sides", flush=True); continue
+    (d0, lo), (d1, hi) = lst[i - 1], lst[i]
     if day in found:
         status, reqs = "cached", 0
     else:
-        # the ID scheme of the nearest anchor before the day
-        def latest_before(p):
-            j = bisect.bisect_left(anchors[p], (day, 0))
-            return anchors[p][j - 1][0] if j > 0 else dt.date.min
-        pre = max(anchors, key=latest_before)
-        lst = anchors[pre]
-        i = bisect.bisect_left(lst, (day, 0))
-        if i == 0 or i == len(lst):
-            print(f"{day}\tskip\tno anchors on both sides", flush=True); continue
-        (d0, lo), (d1, hi) = lst[i - 1], lst[i]
         est = round(lo + (day - d0).days / (d1 - d0).days * (hi - lo))
         reqs, k, hit_k = 0, 0, None
         while k <= WINDOW[pre]:
@@ -164,6 +184,12 @@ for day in lost:
     for aid, t in found.get(day, {}).items():
         out.write(f"{day}\t{kind_of(t)}\t{aid}\t{t}\n")
     if day not in found:
-        out.write(f"{day}\tnone\t-\t-\n")
+        extra = misdated(day, pre, lo, hi)
+        for aid, t in extra:
+            out.write(f"{day}\t{kind_of(t)}\t{aid}\t{t} (misdated?)\n")
+        if extra:
+            status = f"{len(extra)} misdated candidate(s)"
+        else:
+            out.write(f"{day}\tnone\t-\t-\n")
     out.flush()
     print(f"{day}\t{status}\t{reqs} req\t{len(found)} days found so far", flush=True)

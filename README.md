@@ -153,13 +153,41 @@ This was run on 2026-11-25/26 against the 316 days then in `lost.txt`:
 | still lost | 24 |
 
 Probing made about 164,000 requests (most are 404s), roughly 570 per day found,
-at about one request per second per worker. Of the 24 days still lost, 2 have a page on yle.fi dated
-the following day, 3 survive only as old-layout copies in Common Crawl (which
-`archive backfill` cannot read), and the rest were not found anywhere.
+at about one request per second per worker.
+
+A third pass the same day took the remaining 24 days from 24 to 3. The lesson
+was that Yle's titles are hand-typed: "Perjantai 19.1. 2018", "Tiistai
+21.2.2020" (for 21.1.), "Keskiviikko 12.9.2019" (for 12.6.), "Sunnuntai
+21.4.2109". The old site's daily quiz pages, found in Common Crawl and the
+Wayback Machine, linked their day's edition under these misdated slugs, which
+gave it away. `probe_ids.py` now lists every edition-shaped title between a
+lost day's neighbours as a candidate, whatever date it names, and lets
+`datePublished` decide. That found 16 days; fully scanning the ID ranges of
+the rest found 3 more whose editions sat just outside the probe window.
+
+Two editions were posted after midnight, so their `datePublished` names the
+next day, which has an edition of its own: the TV edition titled 7.3.2019
+(posted 08:37 on the 8th) and the radio edition titled 14.4.2019 (00:01 on
+the 15th). `archive backfill` files by `datePublished` and cannot place them,
+so they were copied by hand to `2019/03/07/` and `2019/04/14/`. The audit
+counts them as benign off-by-one days, and since their edition is newer than
+their day, the capture rules never touch them.
+
+| | days |
+|---|---|
+| still lost after the second sweep | 24 |
+| recovered from misdated titles | 16 |
+| recovered by scanning ID ranges completely | 3 |
+| filed by hand (posted after midnight) | 2 |
+| still lost | 3 |
+
+The last three are 2022-05-01 (only the quiz page survives), 2022-07-06 and
+2023-03-18 (every ID between the neighbouring editions, and a margin either
+side, was probed).
 
 ### `lost.txt`
 
-[`lost.txt`](lost.txt) lists the 24 days whose edition is lost media: Yle
+[`lost.txt`](lost.txt) lists the 3 days whose edition is lost media: Yle
 published it, but no copy survives anywhere. Their folders hold the previous
 edition, carried forward like any gap; the cleaned pipeline marks them
 `"lost": true` in `edition.json`, and the website lists them greyed out as

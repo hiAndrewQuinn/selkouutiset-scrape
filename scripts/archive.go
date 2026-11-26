@@ -114,9 +114,11 @@ func editionFromHeading(page []byte) (time.Time, bool) {
 // editionDate resolves which edition a page carries, preferring the metadata.
 //
 // Where the two anchors disagree the headline is the one that is wrong: across
-// the corpus they differ on 15 captures, and the Finnish weekday name -- an
-// independent witness -- backs datePublished on 13 of them. Yle's headlines
-// carry real typos, including a wrong weekday number and several wrong years.
+// the corpus they differed on 15 captures, and the Finnish weekday name -- an
+// independent witness -- backed datePublished on 13 of them. Yle's headlines
+// carry real typos, including a wrong weekday number and several wrong years
+// ("Sunnuntai 21.4.2109"); recovering misdated editions in 2026-11 raised the
+// count to 24, every one confirmed by datePublished.
 func editionDate(page []byte) (time.Time, anchor) {
 	if day, ok := editionFromPublished(page); ok {
 		return day, anchorPublished
