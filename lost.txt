@@ -17,27 +17,13 @@
 # probed yle.fi article IDs (assigned in increasing order) around where each
 # edition should be, and read Common Crawl's index of the old site's URLs; a
 # page was filed only if yle.fi serves it dated (datePublished) on its day.
-2017-06-28	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2017-07-16	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2017-11-21	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-01-19	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-03-15	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-03-17	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-03-19	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-04-03	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-04-09	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-08-21	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2018-08-27	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
-2019-02-11	yle.fi no longer serves it; an old-layout copy survives in Common Crawl (yle.fi/uutiset/osasto/selkouutiset/maanantai_1122019/10641707)
-2019-02-12	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
-2019-03-07	yle.fi serves the TV edition titled 7.3.2019, but it is dated (datePublished) 2019-03-08
-2019-04-02	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
-2019-04-14	yle.fi serves the radio edition titled 14.4.2019, but it is dated (datePublished) 2019-04-15
-2019-04-21	yle.fi no longer serves it; an old-layout copy survives in Common Crawl (yle.fi/uutiset/osasto/selkouutiset/sunnuntai_2142019/10750025)
-2019-04-23	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2019-06-12	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
-2020-01-21	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2022-05-01	yle.fi no longer serves it; an old-layout copy survives in Common Crawl (yle.fi/uutiset/osasto/selkouutiset/sunnuntai_152022/12425064)
-2022-07-06	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2023-01-08	no copy found anywhere, not even by probing yle.fi article IDs around the day
-2023-03-18	no copy found anywhere, not even by probing yle.fi article IDs around the day
+#
+# Later on 2026-11-26 a third pass recovered 21 more. 19 had titles with typos
+# ("Perjantai 19.1. 2018", "Tiistai 21.2.2020" for 21.1., "Sunnuntai
+# 21.4.2109") or sat just outside the probe window; their datePublished is
+# their day. 2019-03-07 and 2019-04-14 were posted after midnight (08:37 the
+# next morning, and 00:01), so datePublished names the next day, which has an
+# edition of its own; they were filed by hand under the day their title names.
+2022-05-01	only the day's quiz page survives (Common Crawl, yle.fi/uutiset/osasto/selkouutiset/sunnuntai_152022/12425064); no edition found by probing yle.fi article IDs or in any index
+2022-07-06	no copy found anywhere; every yle.fi article ID between the 5th's and 7th's editions, and 1000 either side, was probed
+2023-03-18	no copy found anywhere; every yle.fi article ID between the 17th's and 19th's editions, and 100 either side, was probed
