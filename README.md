@@ -10,7 +10,7 @@ no public archive of the older editions. This repository keeps them.
 
 ## What's in here
 
-One HTML snapshot per calendar day, going back to 2016-09-04 (nightly captures since 2023-10-26, the rest recovered from yle.fi):
+One HTML snapshot per calendar day, going back to 2014-09-20 (nightly captures since 2023-10-26, the rest recovered from yle.fi):
 
 ```
 2026/08/27/selkouutiset_2026_08_27.html
@@ -88,7 +88,7 @@ previous day's edition.
 
 The archive's own captures start on 2023-10-26, but Yle keeps old editions online
 at `https://yle.fi/a/<id>` in the same markup — radio and TV editions back to
-2016. What it lacks is an index. `tools/history.py` builds one from the Wayback
+September 2014. What it lacks is an index. `tools/history.py` builds one from the Wayback
 Machine (old article URLs whose slugs spell the date, snapshots of the RSS feeds,
 and snapshots of the front page), then fetches each edition fresh from yle.fi and
 checks its `datePublished` before anything is filed:
@@ -120,6 +120,21 @@ the existing archive that held the previous day's edition (2024-01-28, 2024-02-1
 Editions that never reached the archive or the Wayback Machine were listed as
 lost; the second sweep below found most of them, 2026-10-05, 2026-10-12 and
 2026-11-02 included.
+
+A second run on 2026-11-27 went back to 2014. Before autumn 2016 the editions
+sat directly under `/uutiset/` (`yle.fi/uutiset/maanantai_10112014/7613741`),
+so `collect` now reads those slugs too, and `fetch` also checks each page's
+JSON-LD names `"publisher":{"name":"Yle Selkouutiset"}`. It filed 2014-09-20
+(the earliest edition yle.fi still serves) to 2016-09-03:
+
+| | days |
+|---|---|
+| a candidate edition found in the Wayback Machine | 683 |
+| fetched from yle.fi and verified | 678 |
+| carried forward | 37 |
+
+Of the carried-forward days, 17 are days Yle usually skips; the other 20 are
+listed in `lost.txt`, twelve of them in December 2015.
 
 ### Finding editions without an index
 
@@ -229,6 +244,28 @@ Go 1.24+, no dependencies — the program is standard library only.
 go run ./scripts audit                       # check the archive
 go run ./scripts -root /tmp/copy audit       # check somewhere else
 go test ./...                                # 32 tests, ~30ms
+```
+
+## The 2006–2009 podcast feed
+
+From 2006 to early 2009 Yle also published Selkouutiset as a podcast, and the
+feed's `<description>` carried the full text of each broadcast. Those pages are
+long gone from yle.fi, but the Wayback Machine kept snapshots of the feed.
+`tools/podcast_feed.py` reads every snapshot and files each broadcast's
+`<item>` verbatim, one file per day, under its own directory:
+
+```
+podcast-feed/2008-04-30.xml   <!-- the snapshot it came from --> + the <item>
+```
+
+That came to 632 broadcasts, 27.4.2006 – 5.2.2009 (the programme went out
+Sunday to Thursday). They live outside the `YYYY/MM/DD/` tree because they are
+not captures of Yle's page and carry no `datePublished`; the invariant above
+covers only the daily captures. selkouutiset-scrape-cleaned turns them into
+day pages.
+
+```sh
+uv run tools/podcast_feed.py --out podcast-feed --cache /tmp/feed-cache
 ```
 
 ## Licence and use

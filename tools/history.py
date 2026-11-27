@@ -10,8 +10,9 @@ the daily capture sees. What is missing is an index: Yle publishes no archive
 listing, and its own search lives under /haku/, which robots.txt disallows.
 The Wayback Machine supplies one. It has recorded, over the years:
 
-  slug   article URLs of the 2016-2023 site, whose slugs spell out the date:
+  slug   article URLs of the 2014-2023 site, whose slugs spell out the date:
          /uutiset/osasto/selkouutiset/keskiviikko_10102018_radio/10448913
+         /uutiset/maanantai_10112014/7613741   (before the osasto/ path)
   feed   snapshots of the RSS feeds, each listing a few weeks of editions
   front  snapshots of the front page, each naming that day's edition
 
@@ -66,11 +67,15 @@ WEEKDAYS = {
 }
 
 SLUG_RE = re.compile(
-    r"/selkouutiset/(?P<wd>" + "|".join(WEEKDAYS) + r")_(?P<digits>[0-9.]{6,10})(?:_(?P<kind>radio|tv))?/(?P<id>\d{6,9})(?:[/?#]|$)"
+    r"/(?:selkouutiset|uutiset)/(?P<wd>" + "|".join(WEEKDAYS) + r")_(?P<digits>[0-9.]{6,10})(?:_(?P<kind>radio|tv))?/(?P<id>\d{6,9})(?:[/?#]|$)"
 )
 PUBLISHED_RE = re.compile(rb'"datePublished":\s*"(\d{4}-\d{2}-\d{2})')
 JSONLD_ID_RE = re.compile(rb'"@id":\s*"(?:https://yle\.fi/a/)?((?:74|3)-\d{6,9})"')
 TITLE_DATE_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.(\d{4})(?!\d)")
+# Every Selkouutiset page names its publisher in its JSON-LD, in all eras the
+# archive holds (2014-2026). The pre-osasto slugs sit under /uutiset/ with the
+# rest of Yle's news, so this is what proves a fetched page is an edition.
+SELKO_MARKER = b'"publisher":{"name":"Yle Selkouutiset"}'
 LINK_ID_RE = re.compile(r"(?:/a/|/uutiset/)((?:74|3)-\d{6,9})|/selkouutiset/[^/]+/(\d{6,9})(?:[/?#]|$)")
 
 
@@ -252,9 +257,16 @@ def collect(args: argparse.Namespace) -> None:
         if day in need:
             found.setdefault(day, {}).setdefault(aid, (kind, source))
 
-    # 1. Slugs of the 2016-2023 site.
+    # 1. Slugs of the 2014-2023 site.
     rows = cdx(cache, "osasto-prefix", url="yle.fi/uutiset/osasto/selkouutiset/", matchType="prefix",
                fl="original", filter="statuscode:200", collapse="urlkey", limit="200000")
+    # Before the osasto/ path (2014-2016) editions sat directly under
+    # /uutiset/, slugged by weekday. Not filtered to status 200: most of these
+    # were captured only as redirects to their later URL, which still carries
+    # the ID.
+    for wd in WEEKDAYS:
+        rows += cdx(cache, f"uutiset-{wd}", url=f"yle.fi/uutiset/{wd}_", matchType="prefix",
+                    fl="original", collapse="urlkey", limit="200000")
     parsed, ambiguous = [], 0
     for (url,) in rows:
         m = SLUG_RE.search(url)
@@ -340,7 +352,7 @@ def fetch(args: argparse.Namespace) -> None:
             status, body = get(YLE_ARTICLE.format(id=aid))
             pub = PUBLISHED_RE.search(body)
             pub_day = pub[1].decode() if pub else "-"
-            ok = status == 200 and len(body) >= MIN_PAGE_BYTES and pub_day == day
+            ok = status == 200 and len(body) >= MIN_PAGE_BYTES and pub_day == day and SELKO_MARKER in body
             log.write(f"{day}\t{kind}\t{aid}\t{status}\t{len(body)}\t{pub_day}\t{'ok' if ok else 'rejected'}\n")
             log.flush()
             if ok:
