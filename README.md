@@ -231,6 +231,28 @@ go run ./scripts -root /tmp/copy audit       # check somewhere else
 go test ./...                                # 32 tests, ~30ms
 ```
 
+## The 2006–2009 podcast feed
+
+From 2006 to early 2009 Yle also published Selkouutiset as a podcast, and the
+feed's `<description>` carried the full text of each broadcast. Those pages are
+long gone from yle.fi, but the Wayback Machine kept snapshots of the feed.
+`tools/podcast_feed.py` reads every snapshot and files each broadcast's
+`<item>` verbatim, one file per day, under its own directory:
+
+```
+podcast-feed/2008-04-30.xml   <!-- the snapshot it came from --> + the <item>
+```
+
+That came to 632 broadcasts, 27.4.2006 – 5.2.2009 (the programme went out
+Sunday to Thursday). They live outside the `YYYY/MM/DD/` tree because they are
+not captures of Yle's page and carry no `datePublished`; the invariant above
+covers only the daily captures. selkouutiset-scrape-cleaned turns them into
+day pages.
+
+```sh
+uv run tools/podcast_feed.py --out podcast-feed --cache /tmp/feed-cache
+```
+
 ## Licence and use
 
 The captured HTML is Yle's copyrighted material, mirrored here for personal
