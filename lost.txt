@@ -38,4 +38,32 @@
 #   the 17th's and 19th's editions (3-12689908..27) is 404 and was never
 #   archived. It is a carried-forward gap like a holiday, not lost media.
 #
-# No edition is known to be lost.
+# No edition from 2016-09-04 onward is known to be lost.
+#
+# 2026-11-27: the history backfill was extended back to 2014-09-20, the
+# earliest edition yle.fi still serves (tools/history.py now also reads the
+# 2014-2016 /uutiset/<weekday>_ slugs). Of the days it carries forward, 17
+# fall on days Yle usually skips; the 20 below did not, by the same rules as
+# above. The article-ID probe is no help this far back: in 2014 Yle's IDs
+# were shared with all its other content, and 1,486 of 1,497 IDs probed
+# around 2014-10-28 were 404s with no edition among the rest.
+2014-10-17	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
+2014-10-28	no copy found anywhere, and not a day Yle usually skips
+2014-12-06	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
+2015-09-13	no copy found anywhere, and not a day Yle usually skips
+2015-10-08	no copy found anywhere, and not a day Yle usually skips
+2015-11-19	no copy found anywhere, and not a day Yle usually skips
+2015-12-07	no copy found anywhere, and not a day Yle usually skips
+2015-12-08	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
+2015-12-10	no copy found anywhere, and not a day Yle usually skips
+2015-12-11	no copy found anywhere, and not a day Yle usually skips
+2015-12-14	no copy found anywhere, and not a day Yle usually skips
+2015-12-15	no copy found anywhere, and not a day Yle usually skips
+2015-12-16	no copy found anywhere, and not a day Yle usually skips
+2015-12-17	no copy found anywhere, and not a day Yle usually skips
+2015-12-18	no copy found anywhere, and not a day Yle usually skips
+2015-12-19	no copy found anywhere, and not a day Yle usually skips
+2015-12-21	edition existed (found in the Wayback Machine) but yle.fi no longer serves it
+2016-03-05	no copy found anywhere, and not a day Yle usually skips
+2016-05-22	no copy found anywhere, and not a day Yle usually skips
+2016-08-07	edition existed (found in the Wayback Machine) but yle.fi no longer serves it

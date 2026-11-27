@@ -10,7 +10,7 @@ no public archive of the older editions. This repository keeps them.
 
 ## What's in here
 
-One HTML snapshot per calendar day, going back to 2016-09-04 (nightly captures since 2023-10-26, the rest recovered from yle.fi):
+One HTML snapshot per calendar day, going back to 2014-09-20 (nightly captures since 2023-10-26, the rest recovered from yle.fi):
 
 ```
 2026/08/27/selkouutiset_2026_08_27.html
@@ -88,7 +88,7 @@ previous day's edition.
 
 The archive's own captures start on 2023-10-26, but Yle keeps old editions online
 at `https://yle.fi/a/<id>` in the same markup — radio and TV editions back to
-2016. What it lacks is an index. `tools/history.py` builds one from the Wayback
+September 2014. What it lacks is an index. `tools/history.py` builds one from the Wayback
 Machine (old article URLs whose slugs spell the date, snapshots of the RSS feeds,
 and snapshots of the front page), then fetches each edition fresh from yle.fi and
 checks its `datePublished` before anything is filed:
@@ -120,6 +120,21 @@ the existing archive that held the previous day's edition (2024-01-28, 2024-02-1
 Editions that never reached the archive or the Wayback Machine were listed as
 lost; the second sweep below found most of them, 2026-10-05, 2026-10-12 and
 2026-11-02 included.
+
+A second run on 2026-11-27 went back to 2014. Before autumn 2016 the editions
+sat directly under `/uutiset/` (`yle.fi/uutiset/maanantai_10112014/7613741`),
+so `collect` now reads those slugs too, and `fetch` also checks each page's
+JSON-LD names `"publisher":{"name":"Yle Selkouutiset"}`. It filed 2014-09-20
+(the earliest edition yle.fi still serves) to 2016-09-03:
+
+| | days |
+|---|---|
+| a candidate edition found in the Wayback Machine | 683 |
+| fetched from yle.fi and verified | 678 |
+| carried forward | 37 |
+
+Of the carried-forward days, 17 are days Yle usually skips; the other 20 are
+listed in `lost.txt`, twelve of them in December 2015.
 
 ### Finding editions without an index
 
